@@ -1,105 +1,107 @@
-// ONLINE/OFFLINE STATUS INDICATOR SCRIPT : HANS TROXLER : [June 12, 2025] 
-// Show ONLINE status if it's 7:30 AM - 4:29 PM AU/Brisbane time.
-// Show OFFLINE status if it's 4:30 PM - 7:29 AM (next day).
+// PRODUCTION VERSION — CONTACT STATUS INDICATOR
+// Shows Online from 7:30am to 4:30pm (Brisbane Time)
+// Author: Hans Troxler — Finalized June 12, 2025
 
 let timeoutId = null;
 
-// Get current Brisbane time as a Date object
-function getBrisbaneTime() {
-  const now = new Date();
-  return new Date(now.toLocaleString('en-AU', { timeZone: 'Australia/Brisbane' }));
+function formatBrisbaneTime(date, withSeconds = true) {
+  return date.toLocaleTimeString('en-AU', {
+    timeZone: 'Australia/Brisbane',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: withSeconds ? '2-digit' : undefined,
+    hour12: false
+  });
 }
 
-// Calculate the next transition point: 7:30 AM or 4:30 PM
-function getNextTransitionTime(currentTime) {
-  const next = new Date(currentTime);
-  const hour = currentTime.getHours();
-  const minute = currentTime.getMinutes();
+function formatBrisbaneDateTime(date) {
+  return date.toLocaleString('en-AU', {
+    timeZone: 'Australia/Brisbane',
+    hour12: false
+  });
+}
 
-  if (hour < 7 || (hour === 7 && minute < 30)) {
-    // Before business hours → transition is today at 7:30 AM
-    next.setHours(7, 30, 0, 0);
-  } else if (hour < 16 || (hour === 16 && minute < 30)) {
-    // During business hours → transition is today at 4:30 PM
-    next.setHours(16, 30, 0, 0);
+function getBrisbaneComponents() {
+  const formatter = new Intl.DateTimeFormat('en-AU', {
+    timeZone: 'Australia/Brisbane',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false
+  });
+
+  const now = new Date();
+  const parts = formatter.formatToParts(now);
+  const obj = Object.fromEntries(parts.map(p => [p.type, p.value]));
+  return { hour: parseInt(obj.hour), minute: parseInt(obj.minute) };
+}
+
+function getNextTransition(type) {
+  const now = new Date();
+  const brisbaneNow = new Date(now.toLocaleString('en-US', { timeZone: 'Australia/Brisbane' }));
+
+  const target = new Date(brisbaneNow);
+  if (type === 'online') {
+    target.setHours(7, 30, 0, 0);
+    if (brisbaneNow >= target) {
+      target.setDate(target.getDate() + 1);
+    }
   } else {
-    // After 4:30 PM → transition is tomorrow at 7:30 AM
-    next.setDate(next.getDate() + 1);
-    next.setHours(7, 30, 0, 0);
+    target.setHours(16, 30, 0, 0);
+    if (brisbaneNow >= target) {
+      target.setDate(target.getDate() + 1);
+    }
   }
 
-  return next;
+  const utcTime = target.getTime() - (target.getTimezoneOffset() * 60000);
+  return new Date(utcTime);
 }
 
-// Utility to convert milliseconds to readable time
-function convertMilliseconds(milliseconds) {
-  const totalSeconds = Math.floor(milliseconds / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return { hours, minutes, seconds };
-}
-
-// Update the status immediately when script starts
-function updateOnlineStatusNow() {
-  const now = getBrisbaneTime();
-  const hour = now.getHours();
-  const minute = now.getMinutes();
-
+function setStatus(isOnline) {
+  const time = formatBrisbaneTime(new Date());
   const indicator = document.querySelector(".ff-cub-online-indicator");
   const container = document.querySelector(".ff-cub-image-container");
-
   if (!indicator || !container) return;
 
-  const isBusinessTime =
-    (hour > 7 || (hour === 7 && minute >= 30)) &&
-    (hour < 16 || (hour === 16 && minute < 30));
-
-  if (isBusinessTime) {
+  if (isOnline) {
     indicator.classList.add("online");
     container.setAttribute("title", "Online");
-    console.log(`[${now.toLocaleTimeString()}] Initial check: Business hours. Online status set.`);
+    console.log(`[${time}] CONTACT INDICATOR STATUS: ONLINE`);
   } else {
     indicator.classList.remove("online");
     container.setAttribute("title", "Offline");
-    console.log(`[${now.toLocaleTimeString()}] Initial check: Outside business hours. Offline status set.`);
+    console.log(`[${time}] CONTACT INDICATOR STATUS: OFFLINE`);
   }
 }
 
-// Schedule the next transition (7:30 AM or 4:30 PM)
-function scheduleNextCheck() {
-  const now = getBrisbaneTime();
-  const nextTransition = getNextTransitionTime(now);
-  const delay = nextTransition.getTime() - now.getTime();
+function scheduleTransition(type) {
+  const now = new Date();
+  const next = getNextTransition(type);
+  const delay = next.getTime() - now.getTime();
 
-  const { hours, minutes, seconds } = convertMilliseconds(delay);
-  console.log(`[${now.toLocaleTimeString()}] Next check scheduled for ${nextTransition.toLocaleTimeString()} [in ${hours}h ${minutes}m ${seconds}s]`);
+  const nowStr = formatBrisbaneTime(now);
+  const nextStr = formatBrisbaneDateTime(next);
+  console.log(`[${nowStr}] Scheduled "${type}" at: ${nextStr}`);
 
+  clearTimeout(timeoutId);
   timeoutId = setTimeout(() => {
-    const current = getBrisbaneTime();
-    const hour = current.getHours();
-    const minute = current.getMinutes();
-
-    const indicator = document.querySelector(".ff-cub-online-indicator");
-    const container = document.querySelector(".ff-cub-image-container");
-
-    if (!indicator || !container) return;
-
-    if (hour === 7 && minute === 30) {
-      indicator.classList.add("online");
-      container.setAttribute("title", "Online");
-      console.log(`[${current.toLocaleTimeString()}] Business hours have started. Online status set.`);
-    } else if (hour === 16 && minute === 30) {
-      indicator.classList.remove("online");
-      container.setAttribute("title", "Offline");
-      console.log(`[${current.toLocaleTimeString()}] Business hours have ended. Offline status set.`);
-    }
-
-    // Schedule the next change
-    scheduleNextCheck();
+    setStatus(type === "online");
+    scheduleTransition(type === "online" ? "offline" : "online");
   }, delay);
 }
 
-// Kick off the process
-updateOnlineStatusNow();
-scheduleNextCheck();
+function initScheduler() {
+  const { hour, minute } = getBrisbaneComponents();
+  const totalMins = hour * 60 + minute;
+  const start = 7 * 60 + 30;
+  const end = 16 * 60 + 30;
+
+  if (totalMins >= start && totalMins < end) {
+    setStatus(true);
+    scheduleTransition("offline");
+  } else {
+    setStatus(false);
+    scheduleTransition("online");
+  }
+}
+
+initScheduler();
